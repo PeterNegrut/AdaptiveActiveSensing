@@ -78,8 +78,15 @@ def main():
            print("Error creating output directory " )
 
     # Output file: simulation time and x y position of the vehicle reference frame
-    out_file = open(out_dir + "output.txt", "w")
-    out_file.write("time x y\n")
+    if (output_step_size == 0.1):
+        out_file = open(out_dir + "output_10hz.txt", "w")
+        out_file.write("time x y\n")
+    
+    elif (output_step_size == 0.0167):
+        out_file = open(out_dir + "output_60hz.txt", "w")
+        out_file.write("time x y\n")
+    
+    
 
     # Log file: the periodic system information (markers, tire forces)
     log_file = open(out_dir + "log.txt", "w")
@@ -216,6 +223,7 @@ debug_output = True
 debug_step_size = 1.0 / 1  # FPS = 1
 
 # Time interval between two output.txt entries
+#This is essentially the Hz of our simulated position sensor (0.1 = 10Hz) (0.0167 = 60Hz)
 output_step_size = 0.1
 
 main()
