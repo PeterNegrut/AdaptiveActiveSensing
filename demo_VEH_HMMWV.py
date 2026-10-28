@@ -1,34 +1,20 @@
-# =============================================================================
-# PROJECT CHRONO - http://projectchrono.org
-#
-# Copyright (c) 2014 projectchrono.org
-# All rights reserved.
-#
-# Use of this source code is governed by a BSD-style license that can be found
-# in the LICENSE file at the top level of the distribution and at
-# http://projectchrono.org/license-chrono.txt.
-#
-# =============================================================================
-# Authors: Simone Benatti, Radu Serban
-# =============================================================================
-#
-# Main driver function for the HMMWV full model (headless, no visualization).
-#
-# The vehicle reference frame has Z up, X towards the front of the vehicle, and
-# Y pointing to the left.
-#
-# =============================================================================
+
+
 
 import pychrono as chrono
 import pychrono.vehicle as veh
 import errno
 import os
 import math as m
+import matplotlib.pyplot as plt
+from estimator import estimate_10hz
 
 
 #// =============================================================================
 
 def main():
+
+
     # Create systems
 
     #  Create the HMMWV vehicle, set parameters, and initialize
@@ -78,14 +64,17 @@ def main():
            print("Error creating output directory " )
 
     # Output file: simulation time and x y position of the vehicle reference frame
-    if (output_step_size == 0.1):
-        out_file = open(out_dir + "output_10hz.txt", "w")
-        out_file.write("time x y\n")
-    
-    elif (output_step_size == 0.0167):
-        out_file = open(out_dir + "output_60hz.txt", "w")
-        out_file.write("time x y\n")
-    
+    out_file = open(out_dir + f"output_{sensor_hz}hz.txt", "w")
+    out_file.write("time x y\n")
+
+    # Estimator file: 100 Hz position predictions made from the sensor readings
+    est_file = open(out_dir + f"estimates_{sensor_hz}hz.txt", "w")
+    est_file.write("time x y\n")
+
+    # Ground truth file: vehicle position at every simulation step
+    truth_file = open(out_dir + "truth.txt", "w")
+    truth_file.write("time x y\n")
+
     
 
     # Log file: the periodic system information (markers, tire forces)
@@ -99,6 +88,10 @@ def main():
 
     # Initialize simulation frame counter
     step_number = 0
+
+    # Previous output sample, passed to the estimator with the current one
+    prev_x = None
+    prev_y = None
 
     hmmwv.GetVehicle().EnableRealtime(True)
 
@@ -130,10 +123,23 @@ def main():
             print("   Rear left:   ", tf_RL.force.x, " ", tf_RL.force.y, " ", tf_RL.force.z, file=log_file)
             print("   Rear right:  ", tf_RR.force.x, " ", tf_RR.force.y, " ", tf_RR.force.z, file=log_file)
 
+        # Ground truth position
+        pos = hmmwv.GetVehicle().GetPos()
+        truth_file.write(f"{time:.4f} {pos.x:.4f} {pos.y:.4f}\n")
+
         # Output vehicle position
         if (step_number % output_steps == 0) :
-            pos = hmmwv.GetVehicle().GetPos()
-            out_file.write(f"{time:.1f} {pos.x:.4f} {pos.y:.4f}\n")
+            out_file.write(f"{time:.4f} {pos.x:.4f} {pos.y:.4f}\n")
+
+            # First reading: no previous sample, so assume zero initial velocity
+            if prev_x is None:
+                prev_x = pos.x
+                prev_y = pos.y
+            t_preds, x_preds, y_preds = estimate_10hz(time, prev_x, prev_y, pos.x, pos.y, sensor_hz)
+            for t_pred, x_pred, y_pred in zip(t_preds, x_preds, y_preds):
+                est_file.write(f"{t_pred:.4f} {x_pred:.4f} {y_pred:.4f}\n")
+            prev_x = pos.x
+            prev_y = pos.y
 
         # Throttle/brake profile: settle, accelerate, then brake to a stop
         if (time < t_throttle_start):
@@ -163,6 +169,8 @@ def main():
         step_number += 1
 
     out_file.close()
+    est_file.close()
+    truth_file.close()
     log_file.close()
 
     return 0
@@ -200,8 +208,9 @@ terrainWidth = 100.0   # size in Y direction
 contact_method = chrono.ChContactMethod_SMC
 
 # Simulation step sizes
-step_size = 2e-3
-tire_step_size = 1e-3
+# 1/600 s divides evenly into both 10 Hz (60 steps) and 60 Hz (10 steps) sensor rates
+step_size = 1 / 600
+tire_step_size = step_size / 2
 
 # Simulation end time
 t_end = 10
@@ -223,7 +232,8 @@ debug_output = True
 debug_step_size = 1.0 / 1  # FPS = 1
 
 # Time interval between two output.txt entries
-#This is essentially the Hz of our simulated position sensor (0.1 = 10Hz) (0.0167 = 60Hz)
-output_step_size = 0.1
+#This is essentially the Hz of our simulated position sensor (10 or 60)
+sensor_hz = 60
+output_step_size = 1 / sensor_hz
 
 main()
